@@ -1,4 +1,30 @@
-var distance = require('turf-distance');
+var distance = require('turf-distance'),
+  rbush = require('rbush'),
+  knn = require('rbush-knn');
+
+var non_indexed = function(targetPoint, points) {
+  var nearestPoint;
+  points.features.forEach(function(pt) {
+    if (!nearestPoint) {
+      nearestPoint = pt;
+      var dist = distance(targetPoint, pt, 'miles');
+      nearestPoint.properties.distance = dist;
+    } else {
+      var dist = distance(targetPoint, pt, 'miles');
+      if (dist < nearestPoint.properties.distance) {
+        nearestPoint = pt;
+        nearestPoint.properties.distance = dist;
+      }
+    }
+  });
+  delete nearestPoint.properties.distance;
+  return nearestPoint;
+};
+
+var rtree_indexed = function(targetPoint, points, json_tree, tree_size) {
+  var tree = rbush(tree_size).fromJSON(json_tree);
+  return points.features[knn(tree, targetPoint.geometry.coordinates, 1)[0].feature_index];
+};
 
 /**
  * Takes a reference {@link Point|point} and a set of points and returns the point from the set closest to the reference.
@@ -59,20 +85,11 @@ var distance = require('turf-distance');
  * //=result
  */
 module.exports = function(targetPoint, points) {
-  var nearestPoint;
-  points.features.forEach(function(pt) {
-    if(!nearestPoint) {
-      nearestPoint = pt;
-      var dist = distance(targetPoint, pt, 'miles');
-      nearestPoint.properties.distance = dist;
-    } else {
-      var dist = distance(targetPoint, pt, 'miles');
-      if(dist < nearestPoint.properties.distance) {
-        nearestPoint = pt;
-        nearestPoint.properties.distance = dist;
-      }
-    }
-  });
-  delete nearestPoint.properties.distance;
-  return nearestPoint;
+  var tree_size = points.features.length - 1;
+  var json_tree = points.features[tree_size].properties ? points.features[tree_size].properties.rtree: null;
+  if(json_tree) {
+    return rtree_indexed(targetPoint, points, json_tree, tree_size);
+  } else {
+    return non_indexed(targetPoint, points);
+  }
 };
